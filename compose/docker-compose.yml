@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  gazebo:
+    build:
+      context: ..
+      dockerfile: docker/gazebo/Dockerfile
+    container_name: ros2_gazebo_runtime
+    network_mode: host
+    ipc: host
+    pid: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../workspace:/workspace:rw
+    
+    #TODO: пробросить видюху
+    #Проброс видеокарты ну тупо разогнаться да в целом можно и убрать
+    devices:
+      - /dev/dri:/dev/dri
+    # Используем tty, чтобы контейнер не падал сразу, если команда завершится
+    tty: true
+
+  navigation:
+    build:
+      context: ..
+      dockerfile: docker/navigation/Dockerfile
+    container_name: ros2_navigation_runtime
+    network_mode: host
+    ipc: host
+    pid: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../workspace:/workspace:rw
+    tty: true
+    command: /bin/bash
