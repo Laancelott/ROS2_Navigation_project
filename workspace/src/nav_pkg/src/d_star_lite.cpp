@@ -7,7 +7,9 @@ DStarLite::DStarLite(int width, int height)
     : width_(width), height_(height), movement_offset_(0.0)
 {
     // Заполняем карту пустыми клетками
-    // базовая инициализация карты --- ИГНОООРЕ --- ИГНОООРЕ --
+    // базовая инициализация карты просто пусытими данными
+
+
     map_.assign(width_, vector<CellData>(height_));
 }
 
