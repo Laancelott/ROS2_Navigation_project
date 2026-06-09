@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   gazebo:
     build:
@@ -9,19 +7,20 @@ services:
     network_mode: host
     ipc: host
     pid: host
+
+    command: bash -c "source /opt/ros/humble/setup.bash && ros2 launch gazebo_ros gazebo.launch.py"
+    
     environment:
       - DISPLAY=${DISPLAY}
       - ROS_DOMAIN_ID=42
       - QT_X11_NO_MITSHM=1
+      - XAUTHORITY=/tmp/.docker.xauth
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ../workspace:/workspace:rw
-    
-    #TODO: пробросить видюху
-    #Проброс видеокарты ну тупо разогнаться да в целом можно и убрать
+      - ${XCOMPOSE_AUTH:-/tmp/.docker.xauth}:/tmp/.docker.xauth:rw
     devices:
       - /dev/dri:/dev/dri
-    # Используем tty, чтобы контейнер не падал сразу, если команда завершится
     tty: true
 
   navigation:
