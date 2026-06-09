@@ -57,11 +57,18 @@ double DStarLite::getHeuristicDistance(GridCoordinate a, GridCoordinate b) {
 
 // Стоимость перехода между двумя соседними клетками
 double DStarLite::getTransitionCost(GridCoordinate from, GridCoordinate to) {
-    // Если пытаемся шагнуть в стену или из стены - прохода нет
-    if (map_[from.x][from.y].is_wall || map_[to.x][to.y].is_wall) {
+    // ВАЖНО: Мы проверяем только клетку НАЗНАЧЕНИЯ (to). 
+    // Если робот случайно оказался в "стене" (from), мы даем ему шанс оттуда уехать.
+    if (map_[to.x][to.y].is_wall) {
         return INFINITY_COST;
     }
-    // Обычный шаг стоит 1.0
+    
+    // Если меняются обе координаты (x и y), значит это шаг по диагонали
+    if (from.x != to.x && from.y != to.y) {
+        return 1.41421356; // Корень из 2
+    }
+    
+    // Шаг по прямой
     return 1.0;
 }
 
