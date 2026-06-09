@@ -8,8 +8,8 @@ services:
     ipc: host
     pid: host
 
-    command: bash -c "source /opt/ros/humble/setup.bash && ros2 launch gazebo_ros gazebo.launch.py"
-    
+    #command: bash -c "source /opt/ros/humble/setup.bash && ros2 launch gazebo_ros gazebo.launch.py"
+    command: bash -c "source /opt/ros/humble/setup.bash && ros2 launch gazebo_ros gazebo.launch.py world:=/workspace/src/gazebo_maps/map_1_k.world"
     environment:
       - DISPLAY=${DISPLAY}
       - ROS_DOMAIN_ID=42

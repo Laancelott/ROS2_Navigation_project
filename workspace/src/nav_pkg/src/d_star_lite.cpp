@@ -1,193 +1,252 @@
-#include "d_star_lite.hpp"
+#include "nav_pkg/d_star_lite.hpp"
 #include <algorithm>
-#include <iostream>
 
-DStarLite::DStarLite(int width, int height) 
-    : width_(width), height_(height), km_(0.0) 
+using namespace std;
+
+DStarLite::DStarLite(int width, int height)
+    : width_(width), height_(height), movement_offset_(0.0)
 {
-    grid_.assign(width, std::vector<bool>(height, false));
-    g_.assign(width, std::vector<double>(height, INF));
-    rhs_.assign(width, std::vector<double>(height, INF));
+    // Заполняем карту пустыми клетками
+    // базовая инициализация карты просто пусытими данными
+
+
+    map_.assign(width_, vector<CellData>(height_));
 }
 
-// 1. Инициализация (Пункт "Initialize()" из статьи)
-void DStarLite::init(State start, State goal) {
-    start_ = start;
-    goal_ = goal;
-    last_ = start_;
-    km_ = 0.0;
+void DStarLite::setStartAndGoal(GridPoint start, GridPoint goal)
+{
 
+    // инит стартовой позиции и цели алгоритма
+    start_pos_ = start;
+    goal_pos_ = goal;
+    last_calc_pos_ = start;
+    movement_offset_ = 0.0;
     queue_.clear();
-    
-    // Заполняем матрицы бесконечностями
-    for (int x = 0; x < width_; ++x) {
-        for (int y = 0; y < height_; ++y) {
-            g_[x][y] = INF;
-            rhs_[x][y] = INF;
+
+    // сбрасываем карту для нового расчета
+    for (int x = 0; x < width_; ++x)
+    {
+        for (int y = 0; y < height_; ++y)
+        {
+            map_[x][y].g = INF;
+            map_[x][y].rhs = INF;
         }
     }
 
-    // Так как мы ищем путь от Goal к Start, базовое условие ставится на цель
-    rhs_[goal_.x][goal_.y] = 0.0;
-    
-    // Кладем целевую точку в очередь
-    QueueItem item;
-    item.key = calculateKey(goal_);
-    item.state = goal_;
-    queue_.insert(item);
+    // нициализируем целевую клетку
+    map_[goal.x][goal.y].rhs = 0.0;
+    queue_.insert({calcKey(goal), goal});
 }
 
-// 2. Расчет ключа сортировки (Пункт "CalculateKey(s)")
-Key DStarLite::calculateKey(State s) {
-    double min_g_rhs = std::min(g_[s.x][s.y], rhs_[s.x][s.y]);
-    
-    Key k;
-    // k1 = минимальная цена + эвристика до робота + накопленное смещение km
-    k.k1 = min_g_rhs + heuristic(s, start_) + km_;
-    // k2 = просто минимальное знание о цене клетки
-    k.k2 = min_g_rhs;
-    
-    return k;
+// === ИСПРАВЛЕНИЕ: Разделение установки препятствия и пересчета пути ===
+SortKey DStarLite::calcKey(GridPoint p)
+{
+    double min_cost = min(map_[p.x][p.y].g, map_[p.x][p.y].rhs);
+    return {
+        min_cost + heuristic(p, start_pos_) + movement_offset_,
+        min_cost};
+
+    // heuristic(p, start_pos_) - это оценка расстояния от p до стартовой позиции.
+    // movement_offset_ - это компенсация для учета смещения робота, чтобы алгоритм
 }
 
-// 3. Эвристика (В нашем случае — обычное расстояние Чебышёва для сетки с диагоналями)
-double DStarLite::heuristic(State s1, State s2) {
-    return std::max(std::abs(s1.x - s2.x), std::abs(s1.y - s2.y));
+double DStarLite::heuristic(GridPoint a, GridPoint b)
+{
+    // расстояние чебышева, потому что робот может двигаться по диагонали
+    return max(abs(a.x - b.x), abs(a.y - b.y));
 }
 
-// 4. Стоимость шага между соседними клетками c(s, s')
-double DStarLite::getCost(State s1, State s2) {
-    // Если любая из клеток заблокирована — прохода нет (цена бесконечна)
-    if (grid_[s1.x][s1.y] || grid_[s2.x][s2.y]) {
+// берет стоимость между соседними клетками клетками с уч стен
+// серега лох)
+double DStarLite::getCost(GridPoint a, GridPoint b)
+{
+    if (map_[a.x][a.y].is_wall || map_[b.x][b.y].is_wall)
         return INF;
+
+    int dx = abs(a.x - b.x);
+    int dy = abs(a.y - b.y);
+
+    if (dx == 1 && dy == 1)
+    {
+        // запрет срезания углов через стену
+        if (map_[a.x][b.y].is_wall || map_[b.x][a.y].is_wall)
+            return INF;
+        return 1.4142; // sqrt(2) впадлу прописать было да
     }
-    // Стоимость шага по диагонали или прямой примем за 1.0 ради простоты сетки
     return 1.0;
 }
 
-// 5. Функция обновления состояния клетки (Пункт "UpdateVertex(u)")
-void DStarLite::updateVertex(State s) {
-    // Если клетка не является целью, пересчитываем её rhs на основе соседей
-    if (s != goal_) {
+void DStarLite::updateVertex(GridPoint p)
+{
+    if (p != goal_pos_)
+    {
         double min_rhs = INF;
-        for (const auto& next : getNeighbors(s)) {
-            double cost = getCost(s, next);
-            if (cost != INF && g_[next.x][next.y] != INF) {
-                min_rhs = std::min(min_rhs, cost + g_[next.x][next.y]);
+        for (const auto &n : getNeighbors(p))
+        {
+            double cost = getCost(p, n);
+            if (cost != INF && map_[n.x][n.y].g != INF)
+            {
+                min_rhs = min(min_rhs, cost + map_[n.x][n.y].g);
             }
         }
-        rhs_[s.x][s.y] = min_rhs;
+        map_[p.x][p.y].rhs = min_rhs;
     }
 
-    // Удаляем клетку из очереди, если она там уже была (чтобы обновить её позицию)
-    for (auto it = queue_.begin(); it != queue_.end(); ) {
-        if (it->state == s) {
+    // чистим очередь от старых записей для клетки p
+    for (auto it = queue_.begin(); it != queue_.end();)
+    {
+        if (it->point == p)
             it = queue_.erase(it);
-        } else {
+        else
             ++it;
-        }
     }
 
-    // Если клетка стала несогласованной (g != rhs), возвращаем её в очередь с новым ключом
-    if (g_[s.x][s.y] != rhs_[s.x][s.y]) {
-        QueueItem item;
-        item.key = calculateKey(s);
-        item.state = s;
-        queue_.insert(item);
+    // если клетка стала неконсистентной то 
+    // эта дура идет обратно в очоредь на пересчет
+
+    if (map_[p.x][p.y].g != map_[p.x][p.y].rhs)
+    {
+        queue_.insert({calcKey(p), p});
     }
 }
 
-// 6. Основной цикл планирования пути (Пункт "ComputeShortestPath()")
-bool DStarLite::computeShortestPath() {
-    if (queue_.empty()) return false;
+// эта функция выполняет основной один цикл дстара
+// возвращает true если путь найден, false если нет пути
 
-    // Крутим цикл, пока минимальный ключ в очереди меньше ключа нашего старта,
-    // ИЛИ пока наш старт не станет полностью согласованным (rhs == g)
-    while (!queue_.empty() && 
-          (queue_.begin()->key < calculateKey(start_) || rhs_[start_.x][start_.y] != g_[start_.x][start_.y])) 
+// Она выхывается в двух местах:
+// 1) после установки начальной и конечной точки, чтобы найти первый путь
+// 2) после изменения карты (установка стены), чтобы обновить путь
+
+bool DStarLite::calculatePath()
+{
+
+    if (queue_.empty())
+        return false;
+
+    while (!queue_.empty())
     {
-        // Берем самый приоритетный элемент и удаляем его из очереди
-        State u = queue_.begin()->state;
-        Key k_old = queue_.begin()->key;
+        // смотрим на элемент с наивысшим приоритетом в очереди
+        SortKey top_key = queue_.begin()->key;
+
+        // сравниваем его с ключом стартовой позиции
+        SortKey start_key = calcKey(start_pos_);
+
+        bool need_update = (top_key < start_key);
+        bool is_inconsistent = (map_[start_pos_.x][start_pos_.y].rhs != map_[start_pos_.x][start_pos_.y].g);
+
+        if (!need_update && !is_inconsistent)
+            break; // путь найден радуемся и идем дальше
+            // можно пивка зарядить на радостях
+
+        // извлекаем элемент с наивысшим приоритетом для обработки
+        GridPoint p = queue_.begin()->point;
+
+        // ИСПРАВЛЕНИЕ: Сравнение ключей должно быть до извлечения элемента из очереди
+        SortKey old_key = queue_.begin()->key;
+
+
+        // удаляем его из очереди чтоб потом ес надо обновить если нужно
+        // серега лох
         queue_.erase(queue_.begin());
 
-        Key k_new = calculateKey(u);
-        
-        // Если за время лежания в очереди ключ устарел — просто обновляем элемент
-        if (k_old < k_new) {
-            QueueItem item;
-            item.key = k_new;
-            item.state = u;
-            queue_.insert(item);
+        SortKey new_key = calcKey(p);
+
+        if (old_key < new_key)
+        {
+            queue_.insert({new_key, p});
         }
-        // Случай А: Клетка избыточно согласована (путь стал короче)
-        else if (g_[u.x][u.y] > rhs_[u.x][u.y]) {
-            g_[u.x][u.y] = rhs_[u.x][u.y];
-            for (const auto& s : getNeighbors(u)) {
-                updateVertex(s);
+        else if (map_[p.x][p.y].g > map_[p.x][p.y].rhs)
+        {
+            map_[p.x][p.y].g = map_[p.x][p.y].rhs;
+            for (const auto &n : getNeighbors(p))
+                updateVertex(n);
+        }
+        else
+        {
+            map_[p.x][p.y].g = INF;
+            updateVertex(p);
+            for (const auto &n : getNeighbors(p))
+                updateVertex(n);
+        }
+    }
+    return map_[start_pos_.x][start_pos_.y].rhs != INF;
+}
+
+// Обновляем стену. ВАЖНО!!!!! больше не вызываем тут calculatePath() потому что это может быть очень долго и мы не хотим тормозить робота в момент установки стены.
+void DStarLite::setObstacle(GridPoint p, bool is_wall)
+{
+    if (map_[p.x][p.y].is_wall == is_wall)
+        return;
+
+    map_[p.x][p.y].is_wall = is_wall;
+    movement_offset_ += heuristic(last_calc_pos_, start_pos_);
+    last_calc_pos_ = start_pos_;
+
+    updateVertex(p);
+    for (const auto &n : getNeighbors(p))
+        updateVertex(n);
+}
+
+bool DStarLite::isWall(GridPoint p) const
+{
+    if (p.x < 0 || p.x >= width_ || p.y < 0 || p.y >= height_)
+        return true;
+    return map_[p.x][p.y].is_wall;
+}
+
+// ввыбор целевой точки с напасом
+GridPoint DStarLite::getSmoothTarget(GridPoint robot_pos)
+{
+    start_pos_ = robot_pos;
+    GridPoint current = robot_pos;
+    GridPoint target = current;
+
+    // Ищем точку на 30-40 см впереди по опт пути
+    //
+    // Робот перестанет вилять задом и начнет резать углы плавно.
+    for (int i = 0; i < 4; ++i)
+    {
+        double min_cost = INF;
+        GridPoint best_next = current;
+
+        for (const auto &n : getNeighbors(current))
+        {
+            double step_cost = getCost(current, n);
+            if (step_cost == INF)
+                continue;
+
+            double total_cost = step_cost + map_[n.x][n.y].g;
+            if (total_cost < min_cost)
+            {
+                min_cost = total_cost;
+                best_next = n;
             }
         }
-        // Случай Б: Клетка недостаточно согласована (появилось препятствие)
-        else {
-            g_[u.x][u.y] = INF;
-            updateVertex(u);
-            for (const auto& s : getNeighbors(u)) {
-                updateVertex(s);
-            }
-        }
+
+        if (best_next == current)
+            break; // Уперлись
+        current = best_next;
+        target = current;
     }
-    return rhs_[start_.x][start_.y] != INF;
+    return target;
 }
 
-// 7. Функция вызова при обнаружении препятствия лидаром
-void DStarLite::updateObstacle(State state, bool is_obstacle) {
-    if (grid_[state.x][state.y] == is_obstacle) return; // Ничего не изменилось
+// Это функция тупл возвращает все соседние клетки для данной клетки
 
-    grid_[state.x][state.y] = is_obstacle;
-
-    // Рассчитываем km: добавляем пройденное роботом расстояние с момента последнего завала
-    km_ += heuristic(last_, start_);
-    last_ = start_;
-
-    // Обновляем саму измененную клетку и всех её соседей вокруг
-    updateVertex(state);
-    for (const auto& s : getNeighbors(state)) {
-        updateVertex(s);
-    }
-
-    // Запускаем локальный пересчет графа
-    computeShortestPath();
-}
-
-// 8. Выбор лучшего соседа для совершения физического шага робота
-State DStarLite::getNextBestState(State current_start) {
-    start_ = current_start;
-    
-    double min_cost = INF;
-    State best_state = start_;
-
-    for (const auto& next : getNeighbors(start_)) {
-        double cost = getCost(start_, next) + g_[next.x][next.y];
-        if (cost < min_cost) {
-            min_cost = cost;
-            best_state = next;
-        }
-    }
-    return best_state;
-}
-
-// Вспомогательная функция получения 8-связных соседей (с учетом диагоналей)
-std::vector<State> DStarLite::getNeighbors(State s) {
-    std::vector<State> neighbors;
-    for (int dx = -1; dx <= 1; ++dx) {
-        for (int dy = -1; dy <= 1; ++dy) {
-            if (dx == 0 && dy == 0) continue;
-            
-            int nx = s.x + dx;
-            int ny = s.y + dy;
-
-            if (nx >= 0 && nx < width_ && ny >= 0 && ny < height_) {
-                neighbors.push_back(State{nx, ny});
+vector<GridPoint> DStarLite::getNeighbors(GridPoint p)
+{
+    vector<GridPoint> neighbors;
+    for (int dx = -1; dx <= 1; ++dx)
+    {
+        for (int dy = -1; dy <= 1; ++dy)
+        {
+            if (dx == 0 && dy == 0)
+                continue;
+            int nx = p.x + dx;
+            int ny = p.y + dy;
+            if (nx >= 0 && nx < width_ && ny >= 0 && ny < height_)
+            {
+                neighbors.push_back({nx, ny});
             }
         }
     }

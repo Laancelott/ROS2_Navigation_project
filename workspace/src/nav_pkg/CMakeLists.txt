@@ -1,25 +1,40 @@
 cmake_minimum_required(VERSION 3.8)
 project(nav_pkg)
 
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
+# Включаем стандарт C++17 (базовый для ROS2 Humble)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# find dependencies
+# Находим обязательные пакеты ROS2
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 
-if(BUILD_TESTING)
-  find_package(ament_lint_auto REQUIRED)
-  # the following line skips the linter which checks for copyrights
-  # comment the line when a copyright and license is added to all source files
-  set(ament_cmake_copyright_FOUND TRUE)
-  # the following line skips cpplint (only works in a git repo)
-  # comment the line when this package is in a git repo and when
-  # a copyright and license is added to all source files
-  set(ament_cmake_cpplint_FOUND TRUE)
-  ament_lint_auto_find_test_dependencies()
-endif()
+# Говорим CMake, что заголовочные файлы (.hpp) нужно искать в папке include
+include_directories(include)
 
+# Создаем исполняемый файл нашей ноды из двух исходников
+add_executable(navigation_node 
+  src/navigation_node.cpp 
+  src/d_star_lite.cpp
+)
+
+# Линкуем (связываем) библиотеки ROS2 с нашей нодой
+ament_target_dependencies(navigation_node 
+  rclcpp 
+  geometry_msgs 
+  nav_msgs 
+  sensor_msgs
+)
+
+# Инсталлируем бинарник, чтобы утилита 'ros2 run' могла его найти
+install(TARGETS
+  navigation_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# Самая важная строчка для ROS2! 
+# Она регистрирует наш пакет в системе ament и завершает CMake-скрипт
 ament_package()

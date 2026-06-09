@@ -1,99 +1,112 @@
 #pragma once
 
 #include <vector>
-#include <cmath>
 #include <set>
-#include <utility>
+#include <cmath>
 #include <limits>
-#include <tuple>
 
-// Структура для представления координат клетки на сетке
-struct State {
+using namespace std;
+
+
+// сразу объявим бескончн как константу
+
+const double INF = numeric_limits<double>::infinity();
+
+// структура для координат на сетке
+struct GridPoint {
     int x;
     int y;
 
-    bool operator==(const State& other) const {
-        return x == other.x && y == other.y;
-    }
-    bool operator!=(const State& other) const {
-        return !(*this == other);
-    }
-
-    // Оператор меньше нужен чтобы использовать sstate как ключ в ассоциативных контейнерах
-    // Классическое лексикографическое сравнение
-    bool operator<(const State& other) const {
-        if (x != other.x) {
-            return x < other.x;
-        }
+    // Операторы для сравнения точек (нужны для хранения в set)
+    bool operator==(const GridPoint& other) const { return x == other.x && y == other.y; }
+    bool operator!=(const GridPoint& other) const { return !(*this == other); }
+    bool operator<(const GridPoint& other) const {
+        if (x != other.x) return x < other.x;
         return y < other.y;
     }
 };
 
-// Двойной ключ сортировки в очереди D* Lite
-struct Key {
-    double k1;
-    double k2;
 
-    // Сравнение ключей по правилам оригинальной статьи (лексикографический порядок)
-    bool operator<(const Key& other) const {
-        if (k1 != other.k1) return k1 < other.k1;
-        return k2 < other.k2;
+// !!!!!!!!!!!
+// робот запоминает данные о каждой клетке в виде этой стурктуры
+struct CellData {
+    double g = INF;       // Точная стоимость до цели
+    double rhs = INF;     // Оценочная стоимость по соседям
+    bool is_wall = false; // Это стена?
+};
+
+// Ключ приоритета для очереди расчетов
+// тупо две цифры сначала чекаем одну потом другую для сортировки
+struct SortKey {
+    double primary;
+    double secondary;
+
+    bool operator<(const SortKey& other) const {
+        if (primary != other.primary) return primary < other.primary;
+        return secondary < other.secondary;
     }
 };
 
-// Элемент нашей очереди: пара из Ключа и Клетки, к которой он относится
+// Элемент очереди на пересчет
+// Просто по сути картеж из ключа и координатыы
 struct QueueItem {
-    Key key;
-    State state;
+    SortKey key;
+    GridPoint point;
 
     bool operator<(const QueueItem& other) const {
         if (key < other.key) return true;
         if (other.key < key) return false;
-        return state < other.state; // Если ключи равны, сортируем по координатам
+        return point < other.point;
     }
 };
 
+
+// КЛАСС D* ЛАЙТ
 class DStarLite {
 public:
-    // Конструктор: принимает размеры сетки (ширина, высота)
+
     DStarLite(int width, int height);
 
-    // Главные функции управления
-    void init(State start, State goal);
-    bool computeShortestPath();
-    void updateObstacle(State state, bool is_obstacle);
+    void setStartAndGoal(GridPoint start, GridPoint goal);
+    bool calculatePath();
     
-    // Функция для получения следующего шага робота
-    State getNextBestState(State current_start);
-    std::vector<State> getPath(State current_start);
+    // Важно: эта функция теперь только ставит стену, но не запускает долгий пересчет!
+    void setObstacle(GridPoint p, bool is_wall);
+    
+    // Возвращает точку чуть впереди, чтобы робот ехал плавно
+    GridPoint getSmoothTarget(GridPoint robot_pos);
+
+    // Проверка, стена ли это (нужно для лидара)
+    bool isWall(GridPoint p) const;
 
 private:
-    // Математические помощники алгоритма
-    Key calculateKey(State s);
-    void updateVertex(State s);
-    double heuristic(State s1, State s2);
-    double getCost(State s1, State s2);
-    std::vector<State> getNeighbors(State s);
-
-    // Размеры нашей карты
+    // ширнина и высота карты в клетках
     int width_;
     int height_;
 
-    // Физическое представление карты (true - стена, false - свободно)
-    std::vector<std::vector<bool>> grid_;
+    // КАРТА ЭТО ВЕКТОР ИЩ ВЕКТОРА ИЗ ДАННЫХ О КЛЕТЕКА
+    // МАТРИЦА ДАННЫХ О КЛЕТКАХ
+    vector<vector<CellData>> map_;
 
-    // Матрицы стоимостей g и rhs
-    std::vector<std::vector<double>> g_;
-    std::vector<std::vector<double>> rhs_;
 
-    // Текущие позиции
-    State start_;
-    State goal_;
-    State last_; // Точка, где робот последний раз обновлял карту
+    GridPoint start_pos_;
+    GridPoint goal_pos_;
+    GridPoint last_calc_pos_;
 
-    double km_;  // Модификатор ключа (Key Modifier) для экономии пересчетов при движении
-    const double INF = std::numeric_limits<double>::infinity();
+    double movement_offset_; // компенсация смещения робота для алгоритма
+    // ХЗ вообще это костыль наверное
+    //
+    // Очередь для обработки клеток при пересчете пути
+    set<QueueItem> queue_;
 
-    // Наша приоритетная очередь (используем set для легкого удаления/обновления элементов)
-    std::set<QueueItem> queue_;
+    // Внутренние функции алгоритма
+
+    // написаны в d_star_lite.cpp
+
+    
+    SortKey calcKey(GridPoint p);
+    void updateVertex(GridPoint p);
+    double heuristic(GridPoint a, GridPoint b);
+    double getCost(GridPoint a, GridPoint b);
+    vector<GridPoint> getNeighbors(GridPoint p);
 };
