@@ -7,93 +7,105 @@
 #include <limits>
 #include <tuple>
 
-// Структура для представления координат клетки на сетке
-struct State {
+using namespace std;
+
+// Константа для обозначения бесконечности (непроходимая стена или неизвестный путь)
+const double INFINITY_COST = numeric_limits<double>::infinity();
+
+// Структура координат клетки на нашей карте
+struct GridCoordinate {
     int x;
     int y;
 
-    bool operator==(const State& other) const {
-        return x == other.x && y == other.y;
+    // Базовые операторы сравнения
+    bool operator==(const GridCoordinate& other) const {
+        return (x == other.x) && (y == other.y);
     }
-    bool operator!=(const State& other) const {
+    bool operator!=(const GridCoordinate& other) const {
         return !(*this == other);
     }
 
-    // Оператор меньше нужен чтобы использовать sstate как ключ в ассоциативных контейнерах
-    // Классическое лексикографическое сравнение
-    bool operator<(const State& other) const {
-        if (x != other.x) {
-            return x < other.x;
-        }
+    // Оператор '<' нужен для использования координат в качестве ключа в set
+    bool operator<(const GridCoordinate& other) const {
+        if (x != other.x) return x < other.x;
         return y < other.y;
     }
 };
 
-// Двойной ключ сортировки в очереди D* Lite
-struct Key {
-    double k1;
-    double k2;
+// Память робота о конкретной клетке. 
+// Вместо трех разных матриц мы храним все данные в одном месте.
+struct CellMemory {
+    double g;       // Точная (уже подтвержденная) стоимость пути от этой клетки до цели
+    double rhs;     // Оценочная (предсказанная) стоимость, основанная на соседях
+    bool is_wall;   // Физическое препятствие (true - стена, false - свободно)
 
-    // Сравнение ключей по правилам оригинальной статьи (лексикографический порядок)
-    bool operator<(const Key& other) const {
-        if (k1 != other.k1) return k1 < other.k1;
-        return k2 < other.k2;
+    // По умолчанию клетка пустая, а путь через неё неизвестен (бесконечность)
+    CellMemory() : g(INFINITY_COST), rhs(INFINITY_COST), is_wall(false) {}
+};
+
+// Ключ приоритета для сортировки клеток в очереди на обработку
+struct PriorityKey {
+    double primary_priority;   // Главный приоритет (учитывает эвристику до робота)
+    double secondary_priority; // Второстепенный приоритет (просто стоимость пути)
+
+    // Сравнение ключей: сначала смотрим на главный приоритет, если равны — на второстепенный
+    bool operator<(const PriorityKey& other) const {
+        if (primary_priority != other.primary_priority) {
+            return primary_priority < other.primary_priority;
+        }
+        return secondary_priority < other.secondary_priority;
     }
 };
 
-// Элемент нашей очереди: пара из Ключа и Клетки, к которой он относится
+// Элемент очереди: хранит координаты клетки и её текущий приоритет
 struct QueueItem {
-    Key key;
-    State state;
+    PriorityKey key;
+    GridCoordinate coord;
 
     bool operator<(const QueueItem& other) const {
         if (key < other.key) return true;
         if (other.key < key) return false;
-        return state < other.state; // Если ключи равны, сортируем по координатам
+        return coord < other.coord; // Защита от одинаковых ключей: сортируем по координатам
     }
 };
 
 class DStarLite {
 public:
-    // Конструктор: принимает размеры сетки (ширина, высота)
+    // Инициализация карты заданного размера
     DStarLite(int width, int height);
 
-    // Главные функции управления
-    void init(State start, State goal);
-    bool computeShortestPath();
-    void updateObstacle(State state, bool is_obstacle);
+    // Главный интерфейс для управления снаружи (из ROS2 ноды)
+    void setStartAndGoal(GridCoordinate start, GridCoordinate goal);
+    bool calculatePathCosts();
+    void updateMapObstacle(GridCoordinate target_cell, bool has_obstacle);
     
-    // Функция для получения следующего шага робота
-    State getNextBestState(State current_start);
-    std::vector<State> getPath(State current_start);
+    // Получение результата: куда ехать дальше
+    GridCoordinate getNextBestStep(GridCoordinate current_robot_pos);
 
 private:
-    // Математические помощники алгоритма
-    Key calculateKey(State s);
-    void updateVertex(State s);
-    double heuristic(State s1, State s2);
-    double getCost(State s1, State s2);
-    std::vector<State> getNeighbors(State s);
+    // Внутренние методы алгоритма D* Lite
+    PriorityKey calculatePriorityKey(GridCoordinate cell);
+    void updateCellState(GridCoordinate cell);
+    
+    double getHeuristicDistance(GridCoordinate a, GridCoordinate b);
+    double getTransitionCost(GridCoordinate from, GridCoordinate to);
+    vector<GridCoordinate> getValidNeighbors(GridCoordinate cell);
 
-    // Размеры нашей карты
-    int width_;
-    int height_;
+    // Параметры карты
+    int map_width_;
+    int map_height_;
 
-    // Физическое представление карты (true - стена, false - свободно)
-    std::vector<std::vector<bool>> grid_;
+    // Единая карта мира, где каждая ячейка хранит свои g, rhs и статус стены
+    vector<vector<CellMemory>> map_;
 
-    // Матрицы стоимостей g и rhs
-    std::vector<std::vector<double>> g_;
-    std::vector<std::vector<double>> rhs_;
+    // Важные координаты
+    GridCoordinate robot_start_;
+    GridCoordinate goal_target_;
+    GridCoordinate last_robot_pos_; // Позиция робота при последнем пересчете карты
 
-    // Текущие позиции
-    State start_;
-    State goal_;
-    State last_; // Точка, где робот последний раз обновлял карту
+    // Накопленное смещение робота (нужно для математики D*, чтобы не пересчитывать всю очередь)
+    double accumulated_robot_movement_;  
 
-    double km_;  // Модификатор ключа (Key Modifier) для экономии пересчетов при движении
-    const double INF = std::numeric_limits<double>::infinity();
-
-    // Наша приоритетная очередь (используем set для легкого удаления/обновления элементов)
-    std::set<QueueItem> queue_;
+    // Очередь клеток, которые требуют пересчета (несогласованные клетки)
+    set<QueueItem> processing_queue_;
 };
