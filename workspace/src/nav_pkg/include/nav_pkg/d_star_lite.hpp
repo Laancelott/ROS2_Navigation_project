@@ -7,9 +7,7 @@
 
 using namespace std;
 
-
 // сразу объявим бескончн как константу
-
 const double INF = numeric_limits<double>::infinity();
 
 // структура для координат на сетке
@@ -25,7 +23,6 @@ struct GridPoint {
         return y < other.y;
     }
 };
-
 
 // !!!!!!!!!!!
 // робот запоминает данные о каждой клетке в виде этой стурктуры
@@ -60,11 +57,9 @@ struct QueueItem {
     }
 };
 
-
 // КЛАСС D* ЛАЙТ
 class DStarLite {
 public:
-
     DStarLite(int width, int height);
 
     void setStartAndGoal(GridPoint start, GridPoint goal);
@@ -88,7 +83,6 @@ private:
     // МАТРИЦА ДАННЫХ О КЛЕТКАХ
     vector<vector<CellData>> map_;
 
-
     GridPoint start_pos_;
     GridPoint goal_pos_;
     GridPoint last_calc_pos_;
@@ -100,9 +94,7 @@ private:
     set<QueueItem> queue_;
 
     // Внутренние функции алгоритма
-
     // написаны в d_star_lite.cpp
-
     
     SortKey calcKey(GridPoint p);
     void updateVertex(GridPoint p);

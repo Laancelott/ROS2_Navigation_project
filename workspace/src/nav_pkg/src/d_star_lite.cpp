@@ -8,14 +8,11 @@ DStarLite::DStarLite(int width, int height)
 {
     // Заполняем карту пустыми клетками
     // базовая инициализация карты просто пусытими данными
-
-
     map_.assign(width_, vector<CellData>(height_));
 }
 
 void DStarLite::setStartAndGoal(GridPoint start, GridPoint goal)
 {
-
     // инит стартовой позиции и цели алгоритма
     start_pos_ = start;
     goal_pos_ = goal;
@@ -119,7 +116,6 @@ void DStarLite::updateVertex(GridPoint p)
 
 bool DStarLite::calculatePath()
 {
-
     if (queue_.empty())
         return false;
 
@@ -143,7 +139,6 @@ bool DStarLite::calculatePath()
 
         // ИСПРАВЛЕНИЕ: Сравнение ключей должно быть до извлечения элемента из очереди
         SortKey old_key = queue_.begin()->key;
-
 
         // удаляем его из очереди чтоб потом ес надо обновить если нужно
         // серега лох
@@ -175,6 +170,12 @@ bool DStarLite::calculatePath()
 // Обновляем стену. ВАЖНО!!!!! больше не вызываем тут calculatePath() потому что это может быть очень долго и мы не хотим тормозить робота в момент установки стены.
 void DStarLite::setObstacle(GridPoint p, bool is_wall)
 {
+    // Защита: не даем ставить стены за пределами карты
+    if (p.x < 0 || p.x >= width_ || p.y < 0 || p.y >= height_) return;
+
+    // Защита: робот не должен ставить стену сам в себя!
+    if (p == start_pos_) return;
+
     if (map_[p.x][p.y].is_wall == is_wall)
         return;
 

@@ -27,10 +27,12 @@ public:
         goal_y_meters_ = 8.263840;
 
         // ИНИЦИАЛИЗАЦИЯ D* LITE
-        GridCoordinate start_grid = metersToGrid(0.0, 0.0);
-        GridCoordinate goal_grid = metersToGrid(goal_x_meters_, goal_y_meters_);
+        GridPoint start_grid = metersToGrid(0.0, 0.0);
+        GridPoint goal_grid = metersToGrid(goal_x_meters_, goal_y_meters_);
         planner_.setStartAndGoal(start_grid, goal_grid);
-        planner_.calculatePathCosts();
+        
+        // ВАЖНО: Добавил первоначальный расчет пути
+        planner_.calculatePath();
 
         // ОДПИСКИ И ПУБЛИКАЦИИ НА РОС КОМПОНЕНТЫ 
 
@@ -88,15 +90,15 @@ private:
     rclcpp::TimerBase::SharedPtr control_timer_;
 
     // Перевод реальных метров в индексы массива
-    GridCoordinate metersToGrid(double x, double y)
+    GridPoint metersToGrid(double x, double y)
     {
         int grid_x = static_cast<int>(round(x / map_resolution_)) + map_offset_;
         int grid_y = static_cast<int>(round(y / map_resolution_)) + map_offset_;
-        return GridCoordinate{grid_x, grid_y};
+        return GridPoint{grid_x, grid_y};
     }
 
     // Перевод индексов массива обратно в реальные метры
-    pair<double, double> gridToMeters(GridCoordinate cell)
+    pair<double, double> gridToMeters(GridPoint cell)
     {
         double x = (cell.x - map_offset_) * map_resolution_;
         double y = (cell.y - map_offset_) * map_resolution_;
@@ -132,7 +134,9 @@ private:
             return;
 
         // Запоминаем текущую клетку робота
-        GridCoordinate robot_grid = metersToGrid(current_x_, current_y_);
+        GridPoint robot_grid = metersToGrid(current_x_, current_y_);
+        
+        bool map_updated = false;
 
         for (size_t i = 0; i < msg->ranges.size(); ++i)
         {
@@ -146,7 +150,7 @@ private:
 
                 double obs_x = current_x_ + distance * cos(total_angle);
                 double obs_y = current_y_ + distance * sin(total_angle);
-                GridCoordinate obs_grid = metersToGrid(obs_x, obs_y);
+                GridPoint obs_grid = metersToGrid(obs_x, obs_y);
 
                 // ТУТ КРЧ ВООБЩЕ ПРИКОЛ (КАРИМ ГЕНИЙ КОМПЬЮТЕРА)
                 // Мы делаем увеличение препятствия
@@ -159,7 +163,7 @@ private:
                         if (abs(dx) + abs(dy) > 3)
                             continue;
 
-                        GridCoordinate inflated_cell{obs_grid.x + dx, obs_grid.y + dy};
+                        GridPoint inflated_cell{obs_grid.x + dx, obs_grid.y + dy};
 
                         // Не ставим препятствие под колеса роботу!
                         if (inflated_cell == robot_grid)
@@ -168,11 +172,20 @@ private:
                         if (inflated_cell.x >= 0 && inflated_cell.x < 200 &&
                             inflated_cell.y >= 0 && inflated_cell.y < 200)
                         {
-                            planner_.updateMapObstacle(inflated_cell, true);
+                            // Если клетка еще не стена, ставим стену и запоминаем, что карта обновилась
+                            if (!planner_.isWall(inflated_cell)) {
+                                planner_.setObstacle(inflated_cell, true);
+                                map_updated = true;
+                            }
                         }
                     }
                 }
             }
+        }
+        
+        // ВАЖНО: Пересчитываем путь ОДИН РАЗ за весь скан лидара, если появились новые препятствия!
+        if (map_updated) {
+            planner_.calculatePath();
         }
     }
 
@@ -191,30 +204,15 @@ private:
             return;
         }
 
-        GridCoordinate current_grid = metersToGrid(current_x_, current_y_);
+        GridPoint current_grid = metersToGrid(current_x_, current_y_);
 
-        GridCoordinate lookahead_target = current_grid;
-
-
-        // Смотрим на 40 см вперед
-        // Ну вообще можно и потыкаться там мб и 50 
-        int lookahead_distance = 4; 
-
-
-        for (int i = 0; i < lookahead_distance; ++i)
-        {
-            GridCoordinate next_step = planner_.getNextBestStep(lookahead_target);
-
-            // Если робот въебался то просто стоп
-            if (next_step == lookahead_target)
-                break;
-            lookahead_target = next_step;
-        }
+        // ВАЖНО: Убран лишний цикл for, так как метод getSmoothTarget УЖЕ
+        // ищет точку на 4 шага вперед внутри DStarLite!
+        GridPoint lookahead_target = planner_.getSmoothTarget(current_grid);
 
         auto [target_x, target_y] = gridToMeters(lookahead_target);
 
         // Целится в эту точку впереди 
-
         double angle_to_target = atan2(target_y - current_y_, target_x - current_x_);
         double angle_error = angle_to_target - current_yaw_;
 
@@ -227,13 +225,11 @@ private:
 
         // ДЕЛАЕМ РЕГУЛЯТОР (КАРИМ ОТЕЦ КОМПЬЮТЕРА И ГЕНИЙ МОЗГА 2)
 
-
         // Скорость зависит от необходимого угла поворота
         // Чем больше нужно повернуть, тем медленнее едем
         double max_linear_speed = 0.3;
 
         // куб зав-ть для плавного торможения
-
         // TODO: потыкаться в кэфы и функции хз может быть не куб а квадрат или экспонента 
         cmd.linear.x = max_linear_speed * pow(cos(angle_error / 2.0), 3);
         if (cmd.linear.x < 0.0)
