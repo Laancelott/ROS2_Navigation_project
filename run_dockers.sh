@@ -20,3 +20,7 @@ cd compose
 XCOMPOSE_AUTH=$XCOMPOSE_AUTH docker compose up -d
 
 echo "=== Контейнеры запущены! Gazebo открывается... ==="
+
+if command -v pokemon-colorscripts >/dev/null 2>&1; then
+    pokemon-colorscripts -r
+fi

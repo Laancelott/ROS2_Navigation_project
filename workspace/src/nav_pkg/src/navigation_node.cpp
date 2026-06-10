@@ -27,8 +27,8 @@ public:
         goal_y_meters_ = 8.263840;
 
         // ИНИЦИАЛИЗАЦИЯ D* LITE
-        GridCoordinate start_grid = metersToGrid(0.0, 0.0);
-        GridCoordinate goal_grid = metersToGrid(goal_x_meters_, goal_y_meters_);
+        GridPoint start_grid = metersToGrid(0.0, 0.0);
+        GridPoint goal_grid = metersToGrid(goal_x_meters_, goal_y_meters_);
         planner_.setStartAndGoal(start_grid, goal_grid);
         planner_.calculatePathCosts();
 
@@ -88,15 +88,15 @@ private:
     rclcpp::TimerBase::SharedPtr control_timer_;
 
     // Перевод реальных метров в индексы массива
-    GridCoordinate metersToGrid(double x, double y)
+    GridPoint metersToGrid(double x, double y)
     {
         int grid_x = static_cast<int>(round(x / map_resolution_)) + map_offset_;
         int grid_y = static_cast<int>(round(y / map_resolution_)) + map_offset_;
-        return GridCoordinate{grid_x, grid_y};
+        return GridPoint{grid_x, grid_y};
     }
 
     // Перевод индексов массива обратно в реальные метры
-    pair<double, double> gridToMeters(GridCoordinate cell)
+    pair<double, double> gridToMeters(GridPoint cell)
     {
         double x = (cell.x - map_offset_) * map_resolution_;
         double y = (cell.y - map_offset_) * map_resolution_;
@@ -132,7 +132,7 @@ private:
             return;
 
         // Запоминаем текущую клетку робота
-        GridCoordinate robot_grid = metersToGrid(current_x_, current_y_);
+        GridPoint robot_grid = metersToGrid(current_x_, current_y_);
 
         for (size_t i = 0; i < msg->ranges.size(); ++i)
         {
@@ -146,7 +146,7 @@ private:
 
                 double obs_x = current_x_ + distance * cos(total_angle);
                 double obs_y = current_y_ + distance * sin(total_angle);
-                GridCoordinate obs_grid = metersToGrid(obs_x, obs_y);
+                GridPoint obs_grid = metersToGrid(obs_x, obs_y);
 
                 // ТУТ КРЧ ВООБЩЕ ПРИКОЛ (КАРИМ ГЕНИЙ КОМПЬЮТЕРА)
                 // Мы делаем увеличение препятствия
@@ -159,7 +159,7 @@ private:
                         if (abs(dx) + abs(dy) > 3)
                             continue;
 
-                        GridCoordinate inflated_cell{obs_grid.x + dx, obs_grid.y + dy};
+                        GridPoint inflated_cell{obs_grid.x + dx, obs_grid.y + dy};
 
                         // Не ставим препятствие под колеса роботу!
                         if (inflated_cell == robot_grid)
@@ -191,9 +191,9 @@ private:
             return;
         }
 
-        GridCoordinate current_grid = metersToGrid(current_x_, current_y_);
+        GridPoint current_grid = metersToGrid(current_x_, current_y_);
 
-        GridCoordinate lookahead_target = current_grid;
+        GridPoint lookahead_target = current_grid;
 
 
         // Смотрим на 40 см вперед
@@ -203,11 +203,12 @@ private:
 
         for (int i = 0; i < lookahead_distance; ++i)
         {
-            GridCoordinate next_step = planner_.getNextBestStep(lookahead_target);
+            GridPoint next_step = planner_.getNextBestStep(lookahead_target);
 
             // Если робот въебался то просто стоп
             if (next_step == lookahead_target)
                 break;
+                
             lookahead_target = next_step;
         }
 
